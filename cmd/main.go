@@ -16,36 +16,22 @@ import (
 func main() {
 	cfg := config.Load()
 
-	if cfg.DatabaseURL == "" {
-		log.Fatal("DB_URL environment variable is required")
-	}
-
-	todoRepo, err := db.NewPostgresTodoRepository(cfg.DatabaseURL)
+	// Connect to PostgreSQL and build the three layers: repo → service → handler.
+	// Each layer only knows about the layer directly below it.
+	expenseRepo, err := db.NewPostgresExpenseRepository(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	defer todoRepo.Close()
+	defer expenseRepo.Close()
 
-	noteRepo, err := db.NewPostgresNoteRepository(cfg.DatabaseURL)
-	if err != nil {
-		log.Fatalf("Failed to initialize note database: %v", err)
-	}
-	defer noteRepo.Close()
-
-	todoService := services.NewTodoService(todoRepo)
-	todoHandler := handlers.NewTodoHandler(todoService)
-
-	noteService := services.NewNoteService(noteRepo)
-	noteHandler := handlers.NewNoteHandler(noteService)
+	expenseService := services.NewExpenseService(expenseRepo)
+	expenseHandler := handlers.NewExpenseHandler(expenseService)
 
 	router := mux.NewRouter()
-
 	router.Use(corsMiddleware)
 	router.Use(jsonMiddleware)
 
-	todoHandler.RegisterRoutes(router)
-	noteHandler.RegisterRoutes(router)
-
+	expenseHandler.RegisterRoutes(router)
 	router.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
 	addr := ":" + cfg.Port

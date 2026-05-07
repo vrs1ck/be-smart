@@ -1,0 +1,28 @@
+# Environment variables — never commit real credentials
+.env
+.env.local
+.env.*.local
+
+# Go build output
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+main
+todo-api
+budget-api
+
+# Go test cache
+*.test
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

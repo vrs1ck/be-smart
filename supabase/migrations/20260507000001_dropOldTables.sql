@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS gocourse.notes CASCADE;
+DROP TABLE IF EXISTS gocourse.todos CASCADE;
