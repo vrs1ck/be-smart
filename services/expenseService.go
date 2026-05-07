@@ -8,38 +8,39 @@ import (
 	"flashcards/models"
 )
 
-// ExpenseService sits between the handler (HTTP) and the repository (database).
-// Its job is: validate inputs, apply business rules, then delegate to the repo.
-// The handler never talks to the database directly — it always goes through here.
 type ExpenseService struct {
 	repo db.ExpenseRepository
 }
 
-// NewExpenseService takes an ExpenseRepository interface, not the concrete PostgreSQL type.
-// This is Go's dependency injection: the service works with any repo implementation.
 func NewExpenseService(repo db.ExpenseRepository) *ExpenseService {
 	return &ExpenseService{repo: repo}
 }
 
 func (s *ExpenseService) CreateExpense(req *models.CreateExpenseRequest) (*models.Expense, error) {
-	if err := s.validateCreateRequest(req); err != nil {
-		return nil, err
+	if req == nil {
+		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	expense := &models.Expense{
-		Title:     strings.TrimSpace(req.Title),
-		Amount:    req.Amount,
-		Category:  strings.TrimSpace(req.Category),
-		CoveredBy: "",
-		Month:     req.Month,
-		Year:      req.Year,
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		return nil, fmt.Errorf("title is required")
+	}
+	if len(title) > 255 {
+		return nil, fmt.Errorf("title cannot exceed 255 characters")
+	}
+	if req.Budget < 0 {
+		return nil, fmt.Errorf("budget cannot be negative")
 	}
 
-	if err := s.repo.CreateExpense(expense); err != nil {
+	e := &models.Expense{
+		Title:     title,
+		Budget:    req.Budget,
+		Recurring: req.Recurring,
+	}
+	if err := s.repo.CreateExpense(e); err != nil {
 		return nil, fmt.Errorf("failed to create expense: %w", err)
 	}
-
-	return expense, nil
+	return e, nil
 }
 
 func (s *ExpenseService) GetExpenseByID(id int) (*models.Expense, error) {
@@ -49,58 +50,43 @@ func (s *ExpenseService) GetExpenseByID(id int) (*models.Expense, error) {
 	return s.repo.GetExpenseByID(id)
 }
 
-func (s *ExpenseService) GetExpensesByMonth(month, year int) ([]*models.Expense, error) {
-	if month < 1 || month > 12 {
-		return nil, fmt.Errorf("month must be between 1 and 12")
-	}
-	if year < 2020 {
-		return nil, fmt.Errorf("year must be 2020 or later")
-	}
-	return s.repo.GetExpensesByMonth(month, year)
+func (s *ExpenseService) GetAllExpenses() ([]*models.Expense, error) {
+	return s.repo.GetAllExpenses()
 }
 
 func (s *ExpenseService) UpdateExpense(id int, req *models.UpdateExpenseRequest) (*models.Expense, error) {
 	if id <= 0 {
 		return nil, fmt.Errorf("invalid expense ID: %d", id)
 	}
-
-	if err := s.validateUpdateRequest(req); err != nil {
-		return nil, err
+	if req == nil {
+		return nil, fmt.Errorf("request cannot be nil")
+	}
+	if req.Title == nil && req.Budget == nil && req.Recurring == nil {
+		return nil, fmt.Errorf("at least one field must be provided for update")
 	}
 
-	// Build a map of only the fields that were actually sent.
-	// The DB layer uses this map to build a dynamic UPDATE statement.
 	updates := make(map[string]any)
 
 	if req.Title != nil {
-		trimmed := strings.TrimSpace(*req.Title)
-		if trimmed == "" {
+		title := strings.TrimSpace(*req.Title)
+		if title == "" {
 			return nil, fmt.Errorf("title cannot be empty")
 		}
-		updates["title"] = trimmed
+		updates["title"] = title
 	}
-
-	if req.Amount != nil {
-		updates["amount"] = *req.Amount
+	if req.Budget != nil {
+		if *req.Budget < 0 {
+			return nil, fmt.Errorf("budget cannot be negative")
+		}
+		updates["budget"] = *req.Budget
 	}
-
-	if req.Category != nil {
-		updates["category"] = strings.TrimSpace(*req.Category)
-	}
-
-	if req.CoveredBy != nil {
-		updates["covered_by"] = strings.TrimSpace(*req.CoveredBy)
-	}
-
-	if len(updates) == 0 {
-		return nil, fmt.Errorf("no valid updates provided")
+	if req.Recurring != nil {
+		updates["recurring"] = *req.Recurring
 	}
 
 	if err := s.repo.UpdateExpense(id, updates); err != nil {
 		return nil, err
 	}
-
-	// Fetch and return the updated record so the caller gets fresh data.
 	return s.repo.GetExpenseByID(id)
 }
 
@@ -111,58 +97,79 @@ func (s *ExpenseService) DeleteExpense(id int) error {
 	return s.repo.DeleteExpense(id)
 }
 
-func (s *ExpenseService) validateCreateRequest(req *models.CreateExpenseRequest) error {
-	if req == nil {
-		return fmt.Errorf("request cannot be nil")
+// GetMonthlySummary builds the combined view for a given month:
+// - All recurring expenses (always shown, even with no transactions)
+// - Non-recurring expenses that have at least one transaction this month
+// Each expense has its transactions for the month attached.
+//
+// We do two separate queries and merge in Go rather than a complex SQL join.
+// This is easier to understand and maintain for a learning project.
+func (s *ExpenseService) GetMonthlySummary(month, year int, txRepo db.TransactionRepository) ([]*models.ExpenseWithTransactions, error) {
+	if month < 1 || month > 12 {
+		return nil, fmt.Errorf("month must be between 1 and 12")
+	}
+	if year < 2020 {
+		return nil, fmt.Errorf("year must be 2020 or later")
 	}
 
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		return fmt.Errorf("title is required")
-	}
-	if len(title) > 255 {
-		return fmt.Errorf("title cannot exceed 255 characters")
+	// Step 1: Get all recurring expenses (always in the list).
+	recurring, err := s.repo.GetRecurringExpenses()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recurring expenses: %w", err)
 	}
 
-	if req.Amount < 0 {
-		return fmt.Errorf("amount cannot be negative")
+	// Step 2: Get all transactions for this month.
+	transactions, err := txRepo.GetTransactionsByMonth(month, year)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transactions: %w", err)
 	}
 
-	if len(strings.TrimSpace(req.Category)) > 50 {
-		return fmt.Errorf("category cannot exceed 50 characters")
+	// Step 3: Group transactions by expense ID using a map.
+	// A map in Go is written as map[KeyType]ValueType.
+	// Here: key = expense ID (int), value = slice of transactions.
+	txByExpense := make(map[int][]*models.Transaction)
+	for _, tx := range transactions {
+		txByExpense[tx.ExpenseID] = append(txByExpense[tx.ExpenseID], tx)
 	}
 
-	if req.Month < 1 || req.Month > 12 {
-		return fmt.Errorf("month must be between 1 and 12")
+	// Step 4: Build the result list starting with recurring expenses.
+	// We use a map to track which expense IDs are already in the list.
+	seen := make(map[int]bool)
+	result := make([]*models.ExpenseWithTransactions, 0)
+
+	for _, e := range recurring {
+		seen[e.ID] = true
+		result = append(result, &models.ExpenseWithTransactions{
+			Expense:      *e,
+			Transactions: orEmpty(txByExpense[e.ID]),
+		})
 	}
 
-	if req.Year < 2020 {
-		return fmt.Errorf("year must be 2020 or later")
+	// Step 5: For non-recurring expenses that have transactions this month,
+	// fetch the expense by ID and add it to the result.
+	for expenseID, txs := range txByExpense {
+		if seen[expenseID] {
+			continue // already added as recurring
+		}
+		e, err := s.repo.GetExpenseByID(expenseID)
+		if err != nil {
+			continue // expense was deleted but transactions remain — skip
+		}
+		seen[expenseID] = true
+		result = append(result, &models.ExpenseWithTransactions{
+			Expense:      *e,
+			Transactions: txs,
+		})
 	}
 
-	return nil
+	return result, nil
 }
 
-func (s *ExpenseService) validateUpdateRequest(req *models.UpdateExpenseRequest) error {
-	if req == nil {
-		return fmt.Errorf("request cannot be nil")
+// orEmpty returns the slice if non-nil, or an empty slice.
+// This ensures JSON serializes as [] rather than null when there are no transactions.
+func orEmpty(txs []*models.Transaction) []*models.Transaction {
+	if txs == nil {
+		return make([]*models.Transaction, 0)
 	}
-
-	if req.Title == nil && req.Amount == nil && req.Category == nil && req.CoveredBy == nil {
-		return fmt.Errorf("at least one field must be provided for update")
-	}
-
-	if req.Amount != nil && *req.Amount < 0 {
-		return fmt.Errorf("amount cannot be negative")
-	}
-
-	if req.Category != nil && len(strings.TrimSpace(*req.Category)) > 50 {
-		return fmt.Errorf("category cannot exceed 50 characters")
-	}
-
-	if req.CoveredBy != nil && len(strings.TrimSpace(*req.CoveredBy)) > 50 {
-		return fmt.Errorf("covered_by cannot exceed 50 characters")
-	}
-
-	return nil
+	return txs
 }

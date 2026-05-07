@@ -2,36 +2,38 @@ package models
 
 import "time"
 
-// Expense represents a monthly duty or bill (e.g. Rent, Electricity, Netflix).
-// It belongs to a specific month/year and can be marked as covered by one person.
+// Expense is a named spending category (e.g. "Оренда", "Корм", "Spotify").
+// It does NOT belong to a specific month — it's the master list.
+// Recurring=true means it shows up every month automatically.
+// Recurring=false means it only appears when a transaction links to it.
 type Expense struct {
 	ID        int       `json:"id"`
 	Title     string    `json:"title"`
-	Amount    float64   `json:"amount"`
-	Category  string    `json:"category"`
-	CoveredBy string    `json:"coveredBy"` // empty string means not covered yet
-	Month     int       `json:"month"`
-	Year      int       `json:"year"`
+	Budget    float64   `json:"budget"`    // expected monthly amount, can be 0
+	Recurring bool      `json:"recurring"` // true = appears every month
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// CreateExpenseRequest is the body the frontend sends when adding a new expense.
 type CreateExpenseRequest struct {
-	Title    string  `json:"title"`
-	Amount   float64 `json:"amount"`
-	Category string  `json:"category"`
-	Month    int     `json:"month"`
-	Year     int     `json:"year"`
+	Title     string  `json:"title"`
+	Budget    float64 `json:"budget"`
+	Recurring bool    `json:"recurring"`
 }
 
-// UpdateExpenseRequest uses pointer fields so the handler can tell the difference
-// between a field that was not sent (nil) and a field sent as an empty value.
-// This is the standard Go pattern for partial updates — only the fields you send
-// will be changed; everything else stays as-is.
+// UpdateExpenseRequest uses pointer fields so we know which fields were
+// actually sent vs. omitted. A nil pointer means "don't change this field".
 type UpdateExpenseRequest struct {
 	Title     *string  `json:"title,omitempty"`
-	Amount    *float64 `json:"amount,omitempty"`
-	Category  *string  `json:"category,omitempty"`
-	CoveredBy *string  `json:"coveredBy,omitempty"`
+	Budget    *float64 `json:"budget,omitempty"`
+	Recurring *bool    `json:"recurring,omitempty"`
+}
+
+// ExpenseWithTransactions is what the /monthly endpoint returns.
+// The bare "Expense" line is Go struct embedding — it copies all Expense
+// fields directly into this struct, then adds the Transactions slice on top.
+// So in JSON you get: id, title, budget, recurring, createdAt, updatedAt, transactions.
+type ExpenseWithTransactions struct {
+	Expense
+	Transactions []*Transaction `json:"transactions"`
 }
