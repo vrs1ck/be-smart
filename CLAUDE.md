@@ -77,6 +77,26 @@ Both Docker and Supabase CLI must be installed and running for database operatio
 
 - After each task is complete, go build the project to verify your work and then fix any issues which come up.
 
+## Pre-Planning Alignment (MANDATORY)
+
+**Before writing any implementation plan**, you MUST grill the user with targeted questions to close every gap. Do not skip this step, even for small features.
+
+**The goal:** reach a shared mental model where both sides can predict every significant implementation decision before a single line of code is written.
+
+**How to do it:**
+
+1. Restate your current understanding of the request in 2-3 sentences. Flag any assumptions you are making.
+2. Ask pointed questions across these dimensions — skip any that are genuinely obvious from context:
+   - **Scope**: What exactly is in vs. out? Any edge cases to handle or intentionally ignore?
+   - **Data**: What does the data look like going in and coming out? Any constraints or validation rules?
+   - **Behavior**: What should happen on errors, empty states, or unexpected input?
+   - **Integration**: How does this connect to existing code? Which layers are touched?
+   - **Go/architecture**: Are there any Go concepts in this feature you want explained before we build it?
+3. Wait for answers. Do not proceed to planning until the user has responded.
+4. If an answer reveals a new gap, ask a follow-up. Keep going until there are no open questions.
+
+**Only after this alignment is complete**, produce the implementation plan.
+
 ## Teaching & Explanation Rules
 
 This is the user's **first AI project** and they are **new to Go**. Always follow these rules:

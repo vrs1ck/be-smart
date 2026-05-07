@@ -14,13 +14,13 @@ help:
 
 # Application commands
 build:
-	go build -o todo-api cmd/main.go
+	go build -o budget-api cmd/main.go
 
 run:
 	go run cmd/main.go
 
 clean:
-	rm -f todo-api
+	rm -f budget-api
 
 # Database commands
 db-start:
@@ -33,4 +33,10 @@ db-stop:
 
 db-up:
 	@echo "Running database migrations..."
-	supabase migration up
+	supabase db push --local
+
+db-reset:
+	@echo "Resetting database..."
+	supabase stop --no-backup
+	supabase start
+	supabase db push --local
