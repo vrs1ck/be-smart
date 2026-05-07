@@ -33,9 +33,16 @@ func main() {
 	expenseService := services.NewExpenseService(expenseRepo)
 	transactionService := services.NewTransactionService(transactionRepo)
 
+	// RecapService also needs both repos plus the OpenAI key to create its LLM client.
+	recapService, err := services.NewRecapService(cfg.OpenAIAPIKey, expenseRepo, transactionRepo)
+	if err != nil {
+		log.Fatalf("Failed to initialize recap service: %v", err)
+	}
+
 	// Handlers receive services (and transactionRepo for the monthly summary).
 	expenseHandler := handlers.NewExpenseHandler(expenseService, transactionRepo)
 	transactionHandler := handlers.NewTransactionHandler(transactionService)
+	recapHandler := handlers.NewRecapHandler(recapService)
 
 	router := mux.NewRouter()
 	router.Use(corsMiddleware)
@@ -43,6 +50,7 @@ func main() {
 
 	expenseHandler.RegisterRoutes(router)
 	transactionHandler.RegisterRoutes(router)
+	recapHandler.RegisterRoutes(router)
 	router.HandleFunc("/health", healthCheckHandler).Methods("GET")
 
 	addr := ":" + cfg.Port
